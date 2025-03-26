@@ -59,7 +59,9 @@ jobs:
       - run:
           name: "Install Grype"
           command: |
-            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+            mkdir -p "$HOME/.local/bin"
+            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "$HOME/.local/bin"
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> $BASH_ENV
 
       - run:
           name: "Scan SBOM"
