@@ -1,70 +1,53 @@
 version: 2.1
 
 jobs:
-  # ----------------------------------------------------------------------
-  # 1) Job: build_and_create_sbom
-  #    - Checks out code
-  #    - Installs Syft into a user-writable directory
-  #    - (Optionally builds or installs dependencies)
-  #    - Generates an SBOM with Syft
-  #    - Persists sbom.json into a workspace for the next job
-  # ----------------------------------------------------------------------
   build_and_create_sbom:
     docker:
       - image: cimg/base:stable
     steps:
       - checkout
-
-      # Optional: install project dependencies, e.g.:
-      # - run: npm install
-      # - run: yarn install
-      # - run: ./configure && make
-      # etc.
-
       - run:
-          name: "Install Syft (User Directory)"
+          name: "Install Syft"
           command: |
             mkdir -p "$HOME/.local/bin"
             curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
               | sh -s -- -b "$HOME/.local/bin"
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> $BASH_ENV
-
       - run:
           name: "Generate SBOM"
           command: syft . -o cyclonedx-json > sbom.json
-
-      # Persist the SBOM to a workspace so the second job can access it
       - persist_to_workspace:
           root: .
           paths:
             - sbom.json
 
-  # ----------------------------------------------------------------------
-  # 2) Job: scan_sbom_for_vulnerabilities
-  #    - Attaches the workspace (which contains sbom.json)
-  #    - Installs Grype
-  #    - Scans the SBOM for vulnerabilities
-  # ----------------------------------------------------------------------
   scan_sbom_for_vulnerabilities:
     docker:
       - image: cimg/base:stable
     steps:
-      # Attach the workspace so we can access sbom.json
       - attach_workspace:
           at: .
-
       - run:
-          name: "Install Grype (User Directory)"
+          name: "Install Grype"
           command: |
             mkdir -p "$HOME/.local/bin"
             curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
               | sh -s -- -b "$HOME/.local/bin"
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> $BASH_ENV
-
+      
+      # Run Grype in a "table" or "text" mode so it's easy to read in the job log
       - run:
-          name: "Scan SBOM"
-          command: |
-            grype sbom:./sbom.json
+          name: "Scan SBOM and Print to Console"
+          command: grype sbom:./sbom.json -o table
+
+      # Run Grype again to store a JSON report as an artifact for deeper analysis
+      - run:
+          name: "Generate JSON Report"
+          command: grype sbom:./sbom.json -o json > grype-report.json
+      
+      - store_artifacts:
+          path: grype-report.json
+          destination: grype-report.json
 
 workflows:
   version: 2
