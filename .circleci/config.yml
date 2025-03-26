@@ -3,70 +3,68 @@ version: 2.1
 jobs:
   # ----------------------------------------------------------------------
   # 1) Job: build_and_create_sbom
-  #    - Checks out the code
-  #    - Installs Syft
-  #    - Builds/installs dependencies (optional, adjust for your project)
-  #    - Generates SBOM with Syft
-  #    - Stores SBOM as artifact
+  #    - Checks out code
+  #    - Installs Syft into a user-writable directory
+  #    - (Optionally builds or installs dependencies)
+  #    - Generates an SBOM with Syft
+  #    - Persists sbom.json into a workspace for the next job
   # ----------------------------------------------------------------------
   build_and_create_sbom:
     docker:
-      - image: cimg/base:stable  # or another image suitable for your project
+      - image: cimg/base:stable
     steps:
       - checkout
 
-      # OPTIONAL: Install your project dependencies or do any setup
+      # Optional: install project dependencies, e.g.:
       # - run: npm install
       # - run: yarn install
       # - run: ./configure && make
-      # ... etc.
+      # etc.
 
       - run:
           name: "Install Syft (User Directory)"
           command: |
             mkdir -p "$HOME/.local/bin"
-            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"
+            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+              | sh -s -- -b "$HOME/.local/bin"
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> $BASH_ENV
 
       - run:
           name: "Generate SBOM"
-          command: |
-            syft . -o cyclonedx-json > sbom.json
+          command: syft . -o cyclonedx-json > sbom.json
 
-      # Save sbom.json as artifact so it can be used by subsequent jobs
-      - store_artifacts:
-          path: sbom.json
-          destination: sbom.json
+      # Persist the SBOM to a workspace so the second job can access it
+      - persist_to_workspace:
+          root: .
+          paths:
+            - sbom.json
 
   # ----------------------------------------------------------------------
   # 2) Job: scan_sbom_for_vulnerabilities
-  #    - Downloads the SBOM artifact from previous job
+  #    - Attaches the workspace (which contains sbom.json)
   #    - Installs Grype
-  #    - Runs Grype on the SBOM to detect vulnerabilities
+  #    - Scans the SBOM for vulnerabilities
   # ----------------------------------------------------------------------
   scan_sbom_for_vulnerabilities:
     docker:
       - image: cimg/base:stable
     steps:
-      # Optionally check out code if needed for scanning; not strictly needed for just scanning the SBOM
-      - run:
-          name: "Download Artifacts"
-          command: |
-            mkdir artifacts
-            cd artifacts
-            circleci-artifacts download --path sbom.json --destination . || echo "No artifacts found"
+      # Attach the workspace so we can access sbom.json
+      - attach_workspace:
+          at: .
 
       - run:
-          name: "Install Grype"
+          name: "Install Grype (User Directory)"
           command: |
             mkdir -p "$HOME/.local/bin"
-            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "$HOME/.local/bin"
+            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
+              | sh -s -- -b "$HOME/.local/bin"
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> $BASH_ENV
 
       - run:
           name: "Scan SBOM"
           command: |
-            grype sbom:artifacts/sbom.json
+            grype sbom:./sbom.json
 
 workflows:
   version: 2
