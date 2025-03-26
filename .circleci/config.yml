@@ -1,35 +1,46 @@
+# .circleci/config.yml
 version: 2.1
-orbs:
-  sbom: manifest/sbom@0.1.0
-jobs:
-  build:
-    docker:
-      - image: cimg/base:2025.03
-    steps:
-      - checkout
-      - sbom/install:
-          version: v0.11.0
-          generator: syft
-          generator_version: v0.92.0
-      - sbom/generate:
-          generator: syft
-          source: .
-          output: sbom.json
-          format: cyclonedx-json
-          source_name: my-app
-          source_version: 1.0.0
-      - store_artifacts:
-          path: sbom.json
-          destination: sbom
 
 jobs:
+  generate-sbom:
+    docker:
+      - image: aquasec/trivy:0.59
+    steps:
+      - checkout
+      - run:
+          name: Generate SBOM
+          command: |
+            trivy fs --format cyclonedx --output sbom.json .
+      - persist_to_workspace:
+          root: .
+          paths:
+            - sbom.json
+      - store_artifacts:
+          path: sbom.json
+          destination: sbom-artifacts
+
   scan-sbom:
     docker:
-      - image: aquasec/trivy:0.44
+      - image: aquasec/trivy:0.59
     steps:
       - attach_workspace:
           at: /tmp/workspace
       - run:
           name: Scan SBOM
           command: |
-            trivy sbom /tmp/workspace/sbom/sbom.json
+            trivy sbom \
+              --severity CRITICAL,HIGH \
+              --exit-code 1 \
+              --format table \
+              /tmp/workspace/sbom.json
+
+workflows:
+  sbom-security-scan:
+    jobs:
+      - generate-sbom
+      - scan-sbom:
+          requires:
+            - generate-sbom
+          filters:
+            branches:
+              only: main
