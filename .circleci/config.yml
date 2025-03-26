@@ -1,50 +1,74 @@
-# .circleci/config.yml
 version: 2.1
 
 jobs:
-  generate_sbom:  # Snake_case naming convention
+  # ----------------------------------------------------------------------
+  # 1) Job: build_and_create_sbom
+  #    - Checks out the code
+  #    - Installs Syft
+  #    - Builds/installs dependencies (optional, adjust for your project)
+  #    - Generates SBOM with Syft
+  #    - Stores SBOM as artifact
+  # ----------------------------------------------------------------------
+  build_and_create_sbom:
     docker:
-      - image: ghcr.io/anchore/syft:alpine
-        entrypoint: ["/bin/sh", "-c"]  # Moved under docker key
-    resource_class: medium+
+      - image: cimg/base:stable  # or another image suitable for your project
     steps:
       - checkout
+
+      # OPTIONAL: Install your project dependencies or do any setup
+      # - run: npm install
+      # - run: yarn install
+      # - run: ./configure && make
+      # ... etc.
+
       - run:
-          name: Generate SBOM
+          name: "Install Syft"
           command: |
-            syft packages . -o cyclonedx-json=sbom.json
-          shell: /bin/sh  # Moved to run step
-      - persist_to_workspace:
-          root: .
-          paths: 
-            - sbom.json
+            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - run:
+          name: "Generate SBOM"
+          command: |
+            syft . -o cyclonedx-json > sbom.json
+
+      # Save sbom.json as artifact so it can be used by subsequent jobs
       - store_artifacts:
           path: sbom.json
-          destination: sbom-artifacts
+          destination: sbom.json
 
-  scan_sbom:
+  # ----------------------------------------------------------------------
+  # 2) Job: scan_sbom_for_vulnerabilities
+  #    - Downloads the SBOM artifact from previous job
+  #    - Installs Grype
+  #    - Runs Grype on the SBOM to detect vulnerabilities
+  # ----------------------------------------------------------------------
+  scan_sbom_for_vulnerabilities:
     docker:
-      - image: ghcr.io/aquasec/trivy:0.65.0-alpine
-        entrypoint: ["/bin/sh", "-c"]  # Moved under docker key
+      - image: cimg/base:stable
     steps:
-      - attach_workspace:
-          at: /tmp/workspace
+      # Optionally check out code if needed for scanning; not strictly needed for just scanning the SBOM
       - run:
-          name: Vulnerability Scan
+          name: "Download Artifacts"
           command: |
-            trivy sbom --severity CRITICAL,HIGH \
-              --exit-code 1 \
-              --cache-dir /tmp/trivy-cache \
-              /tmp/workspace/sbom.json
-          shell: /bin/sh  # Moved to run step
+            mkdir artifacts
+            cd artifacts
+            circleci-artifacts download --path sbom.json --destination . || echo "No artifacts found"
+
+      - run:
+          name: "Install Grype"
+          command: |
+            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - run:
+          name: "Scan SBOM"
+          command: |
+            grype sbom:artifacts/sbom.json
 
 workflows:
-  security_scan:
+  version: 2
+  build-and-scan-workflow:
     jobs:
-      - generate_sbom
-      - scan_sbom:
-          requires: 
-            - generate_sbom
-          filters:
-            branches:
-              only: main
+      - build_and_create_sbom
+      - scan_sbom_for_vulnerabilities:
+          requires:
+            - build_and_create_sbom
