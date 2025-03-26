@@ -22,9 +22,11 @@ jobs:
       # ... etc.
 
       - run:
-          name: "Install Syft"
+          name: "Install Syft (User Directory)"
           command: |
-            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+            mkdir -p "$HOME/.local/bin"
+            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> $BASH_ENV
 
       - run:
           name: "Generate SBOM"
