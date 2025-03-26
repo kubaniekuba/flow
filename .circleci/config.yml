@@ -4,13 +4,13 @@ version: 2.1
 jobs:
   generate-sbom:
     docker:
-      - image: aquasec/trivy:0.59
+      - image: ghcr.io/anchore/syft:latest  # Official Syft image from GitHub Container Registry
     steps:
       - checkout
       - run:
           name: Generate SBOM
           command: |
-            trivy fs --format cyclonedx --output sbom.json .
+            syft packages . -o cyclonedx-json=sbom.json
       - persist_to_workspace:
           root: .
           paths:
@@ -21,23 +21,28 @@ jobs:
 
   scan-sbom:
     docker:
-      - image: aquasec/trivy:0.59
+      - image: ghcr.io/aquasec/trivy:0.65.0  # Verified working version for cgroupv2
+    resource_class: medium+
     steps:
       - attach_workspace:
           at: /tmp/workspace
       - run:
-          name: Scan SBOM
+          name: Vulnerability Scan
           command: |
-            trivy sbom \
-              --severity CRITICAL,HIGH \
+            trivy sbom --severity CRITICAL,HIGH \
               --exit-code 1 \
-              --format table \
+              --format sarif \
+              --cache-dir /tmp/trivy-cache \
               /tmp/workspace/sbom.json
+      - store_artifacts:
+          path: /tmp/trivy-cache
+          destination: trivy-cache
 
 workflows:
-  sbom-security-scan:
+  security-scan:
     jobs:
-      - generate-sbom
+      - generate-sbom:
+          context: cgroupv2-compat
       - scan-sbom:
           requires:
             - generate-sbom
