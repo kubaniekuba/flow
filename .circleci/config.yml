@@ -4,7 +4,9 @@ version: 2.1
 jobs:
   generate-sbom:
     docker:
-      - image: ghcr.io/anchore/syft:latest  # Official Syft image from GitHub Container Registry
+      - image: ghcr.io/anchore/syft:alpine  # Alpine variant contains /bin/sh
+    resource_class: medium+
+    entrypoint: ["/bin/sh", "-c"]  # Explicit shell declaration[8]
     steps:
       - checkout
       - run:
@@ -13,7 +15,7 @@ jobs:
             syft packages . -o cyclonedx-json=sbom.json
       - persist_to_workspace:
           root: .
-          paths:
+          paths: 
             - sbom.json
       - store_artifacts:
           path: sbom.json
@@ -21,8 +23,8 @@ jobs:
 
   scan-sbom:
     docker:
-      - image: ghcr.io/aquasec/trivy:0.65.0  # Verified working version for cgroupv2
-    resource_class: medium+
+      - image: ghcr.io/aquasec/trivy:0.65.0-alpine
+    entrypoint: ["/bin/sh", "-c"]
     steps:
       - attach_workspace:
           at: /tmp/workspace
@@ -31,12 +33,8 @@ jobs:
           command: |
             trivy sbom --severity CRITICAL,HIGH \
               --exit-code 1 \
-              --format sarif \
               --cache-dir /tmp/trivy-cache \
               /tmp/workspace/sbom.json
-      - store_artifacts:
-          path: /tmp/trivy-cache
-          destination: trivy-cache
 
 workflows:
   security-scan:
@@ -44,7 +42,7 @@ workflows:
       - generate-sbom:
           context: cgroupv2-compat
       - scan-sbom:
-          requires:
+          requires: 
             - generate-sbom
           filters:
             branches:
