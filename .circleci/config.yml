@@ -1,0 +1,35 @@
+version: 2.1
+orbs:
+  sbom: manifest/sbom@0.1.0
+jobs:
+  build:
+    docker:
+      - image: cimg/base:2025.03
+    steps:
+      - checkout
+      - sbom/install:
+          version: v0.11.0
+          generator: syft
+          generator_version: v0.92.0
+      - sbom/generate:
+          generator: syft
+          source: .
+          output: sbom.json
+          format: cyclonedx-json
+          source_name: my-app
+          source_version: 1.0.0
+      - store_artifacts:
+          path: sbom.json
+          destination: sbom
+
+jobs:
+  scan-sbom:
+    docker:
+      - image: aquasec/trivy:0.44
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - run:
+          name: Scan SBOM
+          command: |
+            trivy sbom /tmp/workspace/sbom/sbom.json
