@@ -1,59 +1,128 @@
 version: 2.1
 
+orbs:
+  # Example: If you need Node or Python or other images. Not strictly required, but helpful.
+  # node: circleci/node@4.7.0
+  # python: circleci/python@3.1.0
+  # ...
+  
 jobs:
+  # ----------------------------------------------------------------------
+  # 1) Build and Create SBOM
+  # ----------------------------------------------------------------------
   build_and_create_sbom:
     docker:
       - image: cimg/base:stable
     steps:
       - checkout
+
+      # (Optional) Install or build your project dependencies
+      # For example, if using Node:
+      # - run:
+      #     name: Install Node Dependencies
+      #     command: npm install
+      #
+      # Or Python:
+      # - run:
+      #     name: Install Python Dependencies
+      #     command: pip install -r requirements.txt
+
       - run:
-          name: "Install Syft"
+          name: "Install Syft (User Directory)"
           command: |
             mkdir -p "$HOME/.local/bin"
             curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
               | sh -s -- -b "$HOME/.local/bin"
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> $BASH_ENV
+
       - run:
           name: "Generate SBOM"
-          command: syft . -o cyclonedx-json > sbom.json
+          command: |
+            # Generate CycloneDX JSON SBOM
+            syft . -o cyclonedx-json > sbom.json
+
       - persist_to_workspace:
           root: .
           paths:
             - sbom.json
 
-  scan_sbom_for_vulnerabilities:
+  # ----------------------------------------------------------------------
+  # 2) Scan SBOM for Vulnerabilities
+  # ----------------------------------------------------------------------
+  scan_vulnerabilities:
     docker:
       - image: cimg/base:stable
     steps:
       - attach_workspace:
           at: .
       - run:
-          name: "Install Grype"
+          name: "Install Grype (User Directory)"
           command: |
             mkdir -p "$HOME/.local/bin"
             curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
               | sh -s -- -b "$HOME/.local/bin"
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> $BASH_ENV
-      
-      # Run Grype in a "table" or "text" mode so it's easy to read in the job log
-      - run:
-          name: "Scan SBOM and Print to Console"
-          command: grype sbom:./sbom.json -o table
 
-      # Run Grype again to store a JSON report as an artifact for deeper analysis
       - run:
-          name: "Generate JSON Report"
-          command: grype sbom:./sbom.json -o json > grype-report.json
-      
+          name: "Scan SBOM"
+          command: |
+            # Print results to console (human-readable)
+            grype sbom:sbom.json -o table
+
+            # Save JSON report for deeper analysis
+            grype sbom:sbom.json -o json > grype-report.json
+
+      # Store the Grype JSON report as an artifact so devs can download/view it.
       - store_artifacts:
           path: grype-report.json
           destination: grype-report.json
 
+  # ----------------------------------------------------------------------
+  # 3) License Compliance Check
+  # ----------------------------------------------------------------------
+  license_compliance_check:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: "Install Syft (User Directory)"
+          command: |
+            mkdir -p "$HOME/.local/bin"
+            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+              | sh -s -- -b "$HOME/.local/bin"
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> $BASH_ENV
+
+      - run:
+          name: "Check Licenses"
+          command: |
+            # Use Syft to output a JSON or table listing packages & licenses
+            syft sbom.json -o json > sbom-license-info.json
+
+            # Here, we do a simple grep check for disallowed licenses.
+            # For example, suppose we disallow "GPL-3.0-or-later"
+            # (Adjust to your actual policy)
+            if grep -q "GPL-3.0-or-later" sbom-license-info.json; then
+              echo "ERROR: Found disallowed GPL-3.0-or-later license!"
+              exit 1
+            else
+              echo "License check passed (no disallowed licenses found)."
+            fi
+
+      - store_artifacts:
+          path: sbom-license-info.json
+          destination: sbom-license-info.json
+
 workflows:
   version: 2
+
   build-and-scan-workflow:
     jobs:
       - build_and_create_sbom
-      - scan_sbom_for_vulnerabilities:
+      - scan_vulnerabilities:
+          requires:
+            - build_and_create_sbom
+      - license_compliance_check:
           requires:
             - build_and_create_sbom
