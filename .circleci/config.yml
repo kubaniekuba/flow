@@ -2,17 +2,18 @@
 version: 2.1
 
 jobs:
-  generate-sbom:
+  generate_sbom:  # Snake_case naming convention
     docker:
-      - image: ghcr.io/anchore/syft:alpine  # Alpine variant contains /bin/sh
+      - image: ghcr.io/anchore/syft:alpine
+        entrypoint: ["/bin/sh", "-c"]  # Moved under docker key
     resource_class: medium+
-    entrypoint: ["/bin/sh", "-c"]  # Explicit shell declaration[8]
     steps:
       - checkout
       - run:
           name: Generate SBOM
           command: |
             syft packages . -o cyclonedx-json=sbom.json
+          shell: /bin/sh  # Moved to run step
       - persist_to_workspace:
           root: .
           paths: 
@@ -21,10 +22,10 @@ jobs:
           path: sbom.json
           destination: sbom-artifacts
 
-  scan-sbom:
+  scan_sbom:
     docker:
       - image: ghcr.io/aquasec/trivy:0.65.0-alpine
-    entrypoint: ["/bin/sh", "-c"]
+        entrypoint: ["/bin/sh", "-c"]  # Moved under docker key
     steps:
       - attach_workspace:
           at: /tmp/workspace
@@ -35,15 +36,15 @@ jobs:
               --exit-code 1 \
               --cache-dir /tmp/trivy-cache \
               /tmp/workspace/sbom.json
+          shell: /bin/sh  # Moved to run step
 
 workflows:
-  security-scan:
+  security_scan:
     jobs:
-      - generate-sbom:
-          context: cgroupv2-compat
-      - scan-sbom:
+      - generate_sbom
+      - scan_sbom:
           requires: 
-            - generate-sbom
+            - generate_sbom
           filters:
             branches:
               only: main
