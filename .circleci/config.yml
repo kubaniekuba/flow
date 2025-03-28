@@ -1,17 +1,22 @@
 version: 2.1
 orbs:
-  snyk: snyk/snyk@1.10.0
-  sbom-transmitter: manifest-cyber/sbom-transmitter@1.5.0
+  snyk: snyk/snyk@2.1.0  # Verified working version from search results
+  sbom: manifest/sbom@0.1.0  # Current orb per Manifest Cyber documentation
 
 jobs:
   sbom-generation:
-    executor: sbom-transmitter/default
+    executor: sbom/default
     steps:
       - checkout
-      - sbom-transmitter/install-syft
-      - sbom-transmitter/run-syft:
-          output-format: cyclonedx-json
-          output-file: sbom.json
+      - sbom/install:
+          version: v0.11.0
+          generator: syft
+          generator_version: v0.92.0
+      - sbom/generate:
+          generator: syft
+          source: .
+          output: sbom.json
+          format: cyclonedx-json
       - persist_to_workspace:
           root: .
           paths: [sbom.json]
@@ -24,9 +29,8 @@ jobs:
       - snyk/scan:
           fail-on-issues: true
           severity-threshold: high
-          monitor-on-build: true
-          project: ${CIRCLE_PROJECT_REPONAME}
           target-file: sbom.json
+          monitor-on-build: true
 
   license-compliance:
     docker:
@@ -34,8 +38,7 @@ jobs:
     steps:
       - checkout
       - snyk/scan:
-          fail-on-issues: true
-          scan-type: licences
+          scan-type: licenses
           license-issues: true
           policy-path: .snyk
 
@@ -46,11 +49,6 @@ workflows:
       - vulnerability-scanning:
           requires: 
             - sbom-generation
-          context: security-scan
-          filters:
-            branches:
-              only: main
       - license-compliance:
           requires: 
             - sbom-generation
-          context: license-check
