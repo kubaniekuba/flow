@@ -1,22 +1,19 @@
 version: 2.1
-orbs:
-  snyk: snyk/snyk@2.1.0  # Verified working version from search results
-  sbom: manifest/sbom@0.1.0  # Current orb per Manifest Cyber documentation
 
 jobs:
   sbom-generation:
-    executor: sbom/default
+    docker:
+      - image: cimg/base:2024.01
     steps:
       - checkout
-      - sbom/install:
-          version: v0.11.0
-          generator: syft
-          generator_version: v0.92.0
-      - sbom/generate:
-          generator: syft
-          source: .
-          output: sbom.json
-          format: cyclonedx-json
+      - run:
+          name: Install Syft
+          command: |
+            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+      - run:
+          name: Generate SBOM
+          command: |
+            syft packages . -o cyclonedx-json > sbom.json
       - persist_to_workspace:
           root: .
           paths: [sbom.json]
@@ -26,21 +23,27 @@ jobs:
       - image: cimg/base:2024.01
     steps:
       - checkout
-      - snyk/scan:
-          fail-on-issues: true
-          severity-threshold: high
-          target-file: sbom.json
-          monitor-on-build: true
+      - attach_workspace:
+          at: .
+      - run:
+          name: Install Grype
+          command: |
+            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+      - run:
+          name: Scan for vulnerabilities
+          command: |
+            grype sbom:sbom.json --fail-on high
 
   license-compliance:
     docker:
-      - image: cimg/base:2024.01
+      - image: cimg/go:1.20
     steps:
       - checkout
-      - snyk/scan:
-          scan-type: licenses
-          license-issues: true
-          policy-path: .snyk
+      - run:
+          name: Install and run license-checker
+          command: |
+            go install github.com/google/go-licenses@latest
+            go-licenses check ./... --disallowed_types=forbidden,restricted
 
 workflows:
   security-pipeline:
