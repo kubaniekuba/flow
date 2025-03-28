@@ -44,6 +44,13 @@ workflows:
     jobs:
       - sbom-generation
       - vulnerability-scanning:
-          requires: sbom-generation
+          requires: 
+            - sbom-generation
+          context: security-scan
+          filters:
+            branches:
+              only: main
       - license-compliance:
-          requires: sbom-generation
+          requires: 
+            - sbom-generation
+          context: license-check
