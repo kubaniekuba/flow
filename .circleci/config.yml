@@ -1,11 +1,8 @@
 version: 2.1
 
 orbs:
-  # Example: If you need Node or Python or other images. Not strictly required, but helpful.
-  # node: circleci/node@4.7.0
-  # python: circleci/python@3.1.0
-  # ...
-  
+  # (Optional) If you need language-specific orbs, declare them here
+
 jobs:
   # ----------------------------------------------------------------------
   # 1) Build and Create SBOM
@@ -16,16 +13,10 @@ jobs:
     steps:
       - checkout
 
-      # (Optional) Install or build your project dependencies
-      # For example, if using Node:
-      # - run:
-      #     name: Install Node Dependencies
-      #     command: npm install
-      #
-      # Or Python:
-      # - run:
-      #     name: Install Python Dependencies
-      #     command: pip install -r requirements.txt
+      # (Optional) Install project dependencies
+      # e.g. Node: npm install
+      # e.g. Python: pip install -r requirements.txt
+      # etc.
 
       - run:
           name: "Install Syft (User Directory)"
@@ -38,16 +29,20 @@ jobs:
       - run:
           name: "Generate SBOM"
           command: |
-            # Generate CycloneDX JSON SBOM
+            # Generate a CycloneDX JSON SBOM of the source code
             syft . -o cyclonedx-json > sbom.json
 
+      # Persist the entire project workspace (including sbom.json)
+      # so subsequent jobs can:
+      #  - Use sbom.json for vulnerability scanning
+      #  - Rescan the code for license info
       - persist_to_workspace:
           root: .
           paths:
-            - sbom.json
+            - .
 
   # ----------------------------------------------------------------------
-  # 2) Scan SBOM for Vulnerabilities
+  # 2) Scan SBOM for Vulnerabilities (via Grype)
   # ----------------------------------------------------------------------
   scan_vulnerabilities:
     docker:
@@ -55,6 +50,7 @@ jobs:
     steps:
       - attach_workspace:
           at: .
+
       - run:
           name: "Install Grype (User Directory)"
           command: |
@@ -66,13 +62,12 @@ jobs:
       - run:
           name: "Scan SBOM"
           command: |
-            # Print results to console (human-readable)
+            # Print Grype results in a human-readable table
             grype sbom:sbom.json -o table
 
-            # Save JSON report for deeper analysis
+            # Also generate a JSON report for deeper analysis
             grype sbom:sbom.json -o json > grype-report.json
 
-      # Store the Grype JSON report as an artifact so devs can download/view it.
       - store_artifacts:
           path: grype-report.json
           destination: grype-report.json
@@ -86,6 +81,7 @@ jobs:
     steps:
       - attach_workspace:
           at: .
+
       - run:
           name: "Install Syft (User Directory)"
           command: |
@@ -97,12 +93,11 @@ jobs:
       - run:
           name: "Check Licenses"
           command: |
-            # Use Syft to output a JSON or table listing packages & licenses
-            syft sbom.json -o json > sbom-license-info.json
+            # IMPORTANT: Scan the actual source code (i.e. ".") for license data
+            # Scanning sbom.json won't show license data, as it's not re-parsable for license detection
+            syft . -o json > sbom-license-info.json
 
-            # Here, we do a simple grep check for disallowed licenses.
-            # For example, suppose we disallow "GPL-3.0-or-later"
-            # (Adjust to your actual policy)
+            # Simple example: disallow "GPL-3.0-or-later"
             if grep -q "GPL-3.0-or-later" sbom-license-info.json; then
               echo "ERROR: Found disallowed GPL-3.0-or-later license!"
               exit 1
@@ -116,7 +111,6 @@ jobs:
 
 workflows:
   version: 2
-
   build-and-scan-workflow:
     jobs:
       - build_and_create_sbom
