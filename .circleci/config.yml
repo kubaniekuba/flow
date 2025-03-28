@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  # (Optional) If you need language-specific orbs, declare them here
+  # If you need language-specific orbs (e.g., node or python), you can declare them here
 
 jobs:
   # ----------------------------------------------------------------------
@@ -13,10 +13,14 @@ jobs:
     steps:
       - checkout
 
-      # (Optional) Install project dependencies
-      # e.g. Node: npm install
-      # e.g. Python: pip install -r requirements.txt
-      # etc.
+      # (1) Install or build your project dependencies
+      # For Node.js, we use "yarn install" or "npm install"
+      - run:
+          name: "Install Node Dependencies"
+          command: |
+            cd website
+            yarn install
+            cd ..
 
       - run:
           name: "Install Syft (User Directory)"
@@ -29,13 +33,10 @@ jobs:
       - run:
           name: "Generate SBOM"
           command: |
-            # Generate a CycloneDX JSON SBOM of the source code
+            # IMPORTANT: We scan "." after dependencies are installed
+            # so Syft can detect packages & their licenses from node_modules
             syft . -o cyclonedx-json > sbom.json
 
-      # Persist the entire project workspace (including sbom.json)
-      # so subsequent jobs can:
-      #  - Use sbom.json for vulnerability scanning
-      #  - Rescan the code for license info
       - persist_to_workspace:
           root: .
           paths:
@@ -93,11 +94,11 @@ jobs:
       - run:
           name: "Check Licenses"
           command: |
-            # IMPORTANT: Scan the actual source code (i.e. ".") for license data
-            # Scanning sbom.json won't show license data, as it's not re-parsable for license detection
+            # Re-scan the ACTUAL code with installed packages
+            # This ensures we gather license info from node_modules
             syft . -o json > sbom-license-info.json
 
-            # Simple example: disallow "GPL-3.0-or-later"
+            # Simple grep check for an example disallowed license
             if grep -q "GPL-3.0-or-later" sbom-license-info.json; then
               echo "ERROR: Found disallowed GPL-3.0-or-later license!"
               exit 1
