@@ -9,11 +9,13 @@ jobs:
       - run:
           name: Install Syft
           command: |
-            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+            mkdir -p "$HOME/bin"
+            echo 'export PATH="$HOME/bin:$PATH"' >> $BASH_ENV
+            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/bin"
+            syft version  # Verify installation
       - run:
           name: Generate SBOM
-          command: |
-            syft packages . -o cyclonedx-json > sbom.json
+          command: syft packages . -o cyclonedx-json > sbom.json
       - persist_to_workspace:
           root: .
           paths: [sbom.json]
@@ -28,11 +30,13 @@ jobs:
       - run:
           name: Install Grype
           command: |
-            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+            mkdir -p "$HOME/bin"
+            echo 'export PATH="$HOME/bin:$PATH"' >> $BASH_ENV
+            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "$HOME/bin"
+            grype version  # Verify installation
       - run:
           name: Scan for vulnerabilities
-          command: |
-            grype sbom:sbom.json --fail-on high
+          command: grype sbom:sbom.json --fail-on high
 
   license-compliance:
     docker:
@@ -40,18 +44,23 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Install and run license-checker
+          name: Install go-licenses
           command: |
+            mkdir -p "$HOME/bin"
+            echo 'export PATH="$HOME/bin:$PATH"' >> $BASH_ENV
             go install github.com/google/go-licenses@latest
-            go-licenses check ./... --disallowed_types=forbidden,restricted
+            go-licenses version  # Verify installation
+      - run:
+          name: Check License Compliance
+          command: go-licenses check ./... --disallowed_types=forbidden,restricted
 
 workflows:
   security-pipeline:
     jobs:
       - sbom-generation
       - vulnerability-scanning:
-          requires: 
+          requires:
             - sbom-generation
       - license-compliance:
-          requires: 
+          requires:
             - sbom-generation
