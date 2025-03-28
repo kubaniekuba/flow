@@ -1,123 +1,49 @@
 version: 2.1
-
 orbs:
-  # If you need language-specific orbs (e.g., node or python), you can declare them here
+  snyk: snyk/snyk@1.10.0
+  sbom-transmitter: manifest-cyber/sbom-transmitter@1.5.0
 
 jobs:
-  # ----------------------------------------------------------------------
-  # 1) Build and Create SBOM
-  # ----------------------------------------------------------------------
-  build_and_create_sbom:
-    docker:
-      - image: cimg/base:stable
+  sbom-generation:
+    executor: sbom-transmitter/default
     steps:
       - checkout
-
-      # (1) Install or build your project dependencies
-      # For Node.js, we use "yarn install" or "npm install"
-      - run:
-          name: "Install Node Dependencies"
-          command: |
-            cd website
-            yarn install
-            cd ..
-
-      - run:
-          name: "Install Syft (User Directory)"
-          command: |
-            mkdir -p "$HOME/.local/bin"
-            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
-              | sh -s -- -b "$HOME/.local/bin"
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> $BASH_ENV
-
-      - run:
-          name: "Generate SBOM"
-          command: |
-            # IMPORTANT: We scan "." after dependencies are installed
-            # so Syft can detect packages & their licenses from node_modules
-            syft . -o cyclonedx-json > sbom.json
-
+      - sbom-transmitter/install-syft
+      - sbom-transmitter/run-syft:
+          output-format: cyclonedx-json
+          output-file: sbom.json
       - persist_to_workspace:
           root: .
-          paths:
-            - .
+          paths: [sbom.json]
 
-  # ----------------------------------------------------------------------
-  # 2) Scan SBOM for Vulnerabilities (via Grype)
-  # ----------------------------------------------------------------------
-  scan_vulnerabilities:
+  vulnerability-scanning:
     docker:
-      - image: cimg/base:stable
+      - image: cimg/base:2024.01
     steps:
-      - attach_workspace:
-          at: .
+      - checkout
+      - snyk/scan:
+          fail-on-issues: true
+          severity-threshold: high
+          monitor-on-build: true
+          project: ${CIRCLE_PROJECT_REPONAME}
+          target-file: sbom.json
 
-      - run:
-          name: "Install Grype (User Directory)"
-          command: |
-            mkdir -p "$HOME/.local/bin"
-            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
-              | sh -s -- -b "$HOME/.local/bin"
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> $BASH_ENV
-
-      - run:
-          name: "Scan SBOM"
-          command: |
-            # Print Grype results in a human-readable table
-            grype sbom:sbom.json -o table
-
-            # Also generate a JSON report for deeper analysis
-            grype sbom:sbom.json -o json > grype-report.json
-
-      - store_artifacts:
-          path: grype-report.json
-          destination: grype-report.json
-
-  # ----------------------------------------------------------------------
-  # 3) License Compliance Check
-  # ----------------------------------------------------------------------
-  license_compliance_check:
+  license-compliance:
     docker:
-      - image: cimg/base:stable
+      - image: cimg/base:2024.01
     steps:
-      - attach_workspace:
-          at: .
-
-      - run:
-          name: "Install Syft (User Directory)"
-          command: |
-            mkdir -p "$HOME/.local/bin"
-            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
-              | sh -s -- -b "$HOME/.local/bin"
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> $BASH_ENV
-
-      - run:
-          name: "Check Licenses"
-          command: |
-            # Re-scan the ACTUAL code with installed packages
-            # This ensures we gather license info from node_modules
-            syft . -o json > sbom-license-info.json
-
-            # Simple grep check for an example disallowed license
-            if grep -q "GPL-3.0-or-later" sbom-license-info.json; then
-              echo "ERROR: Found disallowed GPL-3.0-or-later license!"
-              exit 1
-            else
-              echo "License check passed (no disallowed licenses found)."
-            fi
-
-      - store_artifacts:
-          path: sbom-license-info.json
-          destination: sbom-license-info.json
+      - checkout
+      - snyk/scan:
+          fail-on-issues: true
+          scan-type: licences
+          license-issues: true
+          policy-path: .snyk
 
 workflows:
-  version: 2
-  build-and-scan-workflow:
+  security-pipeline:
     jobs:
-      - build_and_create_sbom
-      - scan_vulnerabilities:
-          requires:
-            - build_and_create_sbom
-      - license_compliance_check:
-          requires:
-            - build_and_create_sbom
+      - sbom-generation
+      - vulnerability-scanning:
+          requires: sbom-generation
+      - license-compliance:
+          requires: sbom-generation
