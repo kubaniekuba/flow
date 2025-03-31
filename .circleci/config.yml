@@ -1,66 +1,71 @@
 version: 2.1
 
+executors:
+  ort-executor:
+    docker:
+      - image: ghcr.io/oss-review-toolkit/ort:latest
+    environment:
+      ORT_RESULTS_PATH: /project/ort-results
+      MAVEN_REPO_LOCAL: /project/cache/.m2/repository
+      GO_CACHE_LOCAL: /project/cache/.go/pkg/mod
+      PIP_CACHE_DIR: /project/cache/pip
+      GRADLE_USER_HOME: /project/cache/.gradle
+      YARN_CACHE_FOLDER: /project/cache/yarn
+      NODE_PATH: /project/cache/node_modules
+      SBT_OPTS: "-Dsbt.global.base=/project/cache/sbt -Dsbt.ivy.home=/project/cache/ivy2 -Divy.home=/project/cache/ivy2"
+
 jobs:
-  sbom-generation:
-    docker:
-      - image: cimg/base:2024.01
+  run-ort:
+    executor: ort-executor
     steps:
+      # Step 1: Checkout code
       - checkout
-      - run:
-          name: Install Syft
-          command: |
-            mkdir -p "$HOME/bin"
-            echo 'export PATH="$HOME/bin:$PATH"' >> $BASH_ENV
-            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/bin"
-            syft version  # Verify installation
-      - run:
-          name: Generate SBOM
-          command: syft packages . -o cyclonedx-json > sbom.json
-      - persist_to_workspace:
-          root: .
-          paths: [sbom.json]
 
-  vulnerability-scanning:
-    docker:
-      - image: cimg/base:2024.01
-    steps:
-      - checkout
-      - attach_workspace:
-          at: .
+      # Step 2: Set up environment variables and directories
       - run:
-          name: Install Grype
+          name: Initialize Environment Variables and Directories
           command: |
-            mkdir -p "$HOME/bin"
-            echo 'export PATH="$HOME/bin:$PATH"' >> $BASH_ENV
-            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "$HOME/bin"
-            grype version  # Verify installation
-      - run:
-          name: Scan for vulnerabilities
-          command: grype sbom:sbom.json --fail-on high
+            export ORT_SCAN_STARTED_AT=$(date +"%Y-%m-%dT%H:%M:%S%z")
+            mkdir -p /project/{cache,ort-results,scanner/archive/,scanner/provenance/}
+            mkdir -p ${MAVEN_REPO_LOCAL} ${GO_CACHE_LOCAL} ${PIP_CACHE_DIR} ${GRADLE_USER_HOME} ${YARN_CACHE_FOLDER} ${NODE_PATH}
+            echo "Environment initialized."
 
-  license-compliance:
-    docker:
-      - image: cimg/go:1.20
-    steps:
-      - checkout
+      # Step 3: Run ORT Analyzer
       - run:
-          name: Install go-licenses
+          name: Run ORT Analyzer
           command: |
-            mkdir -p "$HOME/bin"
-            echo 'export PATH="$HOME/bin:$PATH"' >> $BASH_ENV
-            go install github.com/google/go-licenses@latest
-            go-licenses version  # Verify installation
+            ort analyze \
+              -i /project \
+              -o ${ORT_RESULTS_PATH} \
+              -f JSON \
+              --stacktrace
+
+      # Step 4: Run ORT Evaluator (Policy Checks)
       - run:
-          name: Check License Compliance
-          command: go-licenses check ./... --disallowed_types=forbidden,restricted
+          name: Run ORT Evaluator
+          command: |
+            ort evaluate \
+              -i ${ORT_RESULTS_PATH}/analyzer-result.json \
+              -o ${ORT_RESULTS_PATH} \
+              --stacktrace
+
+      # Step 5: Run ORT Reporter (Generate SBOMs and Reports)
+      - run:
+          name: Generate Reports with ORT Reporter
+          command: |
+            ort report \
+              -i ${ORT_RESULTS_PATH}/evaluation-result.json \
+              -o ${ORT_RESULTS_PATH} \
+              -f CycloneDx,SpdxDocument,WebApp \
+              --stacktrace
+
+      # Step 6: Save Artifacts (Reports)
+      - store_artifacts:
+          path: /project/ort-results
+          destination: ort-reports
 
 workflows:
-  security-pipeline:
+  version: 2
+  ort-workflow:
     jobs:
-      - sbom-generation
-      - vulnerability-scanning:
-          requires:
-            - sbom-generation
-      - license-compliance:
-          requires:
-            - sbom-generation
+      - run-ort
