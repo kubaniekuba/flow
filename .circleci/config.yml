@@ -5,14 +5,13 @@ executors:
     docker:
       - image: cimg/docker:stable
     resource_class: medium
-    setup_remote_docker:
-      version: 20.10.7
 
 jobs:
   ort-run:
     executor: docker-executor
+    setup_remote_docker:
+      version: 20.10.7
     environment:
-      # Basic ORT configuration and arguments:
       ORT_HOME_PATH: ".ort"
       PROJECT_PATH: "./"
       IMAGE: "ghcr.io/oss-review-toolkit/ort:latest"
@@ -22,7 +21,6 @@ jobs:
       ORT_CLI_SCAN_ARGS: ""
       ORT_CLI_EVALUATE_ARGS: ""
       ORT_CLI_ADVISE_ARGS: ""
-      # Reporter: generate SBOM (CycloneDX and SPDX) and HTML (WebApp)
       ORT_CLI_REPORT_ARGS: "-O CycloneDX=output.file.formats=json,xml -O SpdxDocument=output.file.formats=json,yaml -O WebApp=output.file.formats=html"
     steps:
       - checkout
@@ -37,12 +35,10 @@ jobs:
             mkdir -p $HOME/.gradle/
             mkdir -p $HOME/.rustup/{cache,download,tmp}
             mkdir -p $HOME/go/
-            # Set up default ORT config path if not provided
             if [ -z "$ORT_CONFIG_PATH" ]; then
               export ORT_CONFIG_PATH="$HOME/$ORT_HOME_PATH/config"
             fi
             export ORT_RESULTS_PATH="$HOME/$ORT_HOME_PATH/ort-results"
-            # Auto-detect software name and version from Git (if applicable)
             if [ -z "$SW_NAME" ] && [ -d "$PROJECT_PATH/.git" ]; then
               export SW_NAME=$(basename -s .git $(cd "$PROJECT_PATH" && git config --get remote.origin.url || echo "unknown"))
             fi
@@ -145,7 +141,7 @@ jobs:
               -i "/home/ort/$ORT_HOME_PATH/ort-results/evaluation-result.json" \
               -o "/home/ort/$ORT_HOME_PATH/ort-results" \
               -f "$ORT_CLI_REPORT_ARGS"
-      
+
       - store_artifacts:
           name: "Store ORT Artifacts"
           path: ~/$(echo $ORT_HOME_PATH)/ort-results
