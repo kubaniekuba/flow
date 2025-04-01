@@ -1,12 +1,18 @@
 version: 2.1
 
-jobs:
-  ort-run:
+executors:
+  docker-executor:
     docker:
       - image: cimg/docker:stable
-    setup_remote_docker: true
+    resource_class: medium
+    setup_remote_docker:
+      version: 20.10.7
+
+jobs:
+  ort-run:
+    executor: docker-executor
     environment:
-      # Define basic environment variables for ORT
+      # Basic ORT configuration and arguments:
       ORT_HOME_PATH: ".ort"
       PROJECT_PATH: "./"
       IMAGE: "ghcr.io/oss-review-toolkit/ort:latest"
@@ -16,7 +22,7 @@ jobs:
       ORT_CLI_SCAN_ARGS: ""
       ORT_CLI_EVALUATE_ARGS: ""
       ORT_CLI_ADVISE_ARGS: ""
-      # Reporter output: Generate SBOM (CycloneDX and SPDX) and an HTML WebApp report.
+      # Reporter: generate SBOM (CycloneDX and SPDX) and HTML (WebApp)
       ORT_CLI_REPORT_ARGS: "-O CycloneDX=output.file.formats=json,xml -O SpdxDocument=output.file.formats=json,yaml -O WebApp=output.file.formats=html"
     steps:
       - checkout
@@ -31,14 +37,12 @@ jobs:
             mkdir -p $HOME/.gradle/
             mkdir -p $HOME/.rustup/{cache,download,tmp}
             mkdir -p $HOME/go/
-            
-            # Set up ORT configuration path if not already defined
+            # Set up default ORT config path if not provided
             if [ -z "$ORT_CONFIG_PATH" ]; then
               export ORT_CONFIG_PATH="$HOME/$ORT_HOME_PATH/config"
             fi
             export ORT_RESULTS_PATH="$HOME/$ORT_HOME_PATH/ort-results"
-            
-            # Auto-detect software name and version (if the project is a Git repo)
+            # Auto-detect software name and version from Git (if applicable)
             if [ -z "$SW_NAME" ] && [ -d "$PROJECT_PATH/.git" ]; then
               export SW_NAME=$(basename -s .git $(cd "$PROJECT_PATH" && git config --get remote.origin.url || echo "unknown"))
             fi
@@ -51,7 +55,7 @@ jobs:
             echo "ORT_RESULTS_PATH=$ORT_RESULTS_PATH"
             echo "SW_NAME_SAFE=$SW_NAME_SAFE"
             echo "ORT_RESULTS_ARTIFACT_NAME=$ORT_RESULTS_ARTIFACT_NAME"
-      
+
       - run:
           name: "Run ORT Analyzer"
           command: |
