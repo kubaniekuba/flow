@@ -48,7 +48,7 @@ jobs:
       - run:
           name: Run License Scan with ScanCode Toolkit
           command: |
-            docker run --rm -v "$(pwd):/src" -w /src scancode-toolkit scancode -l -c --json-pp scan-results.json .
+            docker run --rm -v "$(pwd):/src" -w /src scancode-toolkit /bin/bash -c "scancode -l -c --json-pp scan-results.json ."
 
       # Parse the ScanCode results and fail if any restricted licenses are detected.
       - run:
@@ -81,7 +81,7 @@ jobs:
                 print("No restricted licenses found.")
             EOF
 
-      # Store generated JSON files as artifacts.
+      # Save generated JSON files as artifacts.
       - store_artifacts:
           path: sbom.json
           destination: sbom.json
