@@ -48,7 +48,7 @@ jobs:
       - run:
           name: Run License Scan with ScanCode Toolkit
           command: |
-            docker run --rm -v "$(pwd):/src" -w /src scancode-toolkit /scancode-toolkit/venv/bin/scancode -l -c --json-pp scan-results.json .
+            docker run --rm -v "$(pwd):/src" -w /src --entrypoint /scancode-toolkit/venv/bin/scancode scancode-toolkit -l -c --json-pp scan-results.json .
 
       # Parse the ScanCode results and fail if any restricted licenses are detected.
       - run:
