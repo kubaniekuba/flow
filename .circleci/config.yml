@@ -8,8 +8,13 @@ workflows:
 
 jobs:
   ort-run:
-    machine:
-      image: cimg/docker:stable 
+    docker:
+      # Use a valid Docker image from Docker Hub or CircleCI’s cimg images:
+      - image: cimg/docker:stable
+    steps:
+      - checkout
+      - run: docker version
+      # ... your other steps ...
 
     environment:
       # You can define your environment variables here or in the project settings:
