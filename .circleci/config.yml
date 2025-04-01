@@ -9,7 +9,7 @@ workflows:
 jobs:
   ort-run:
     machine:
-      image: ubuntu-2004:202201-02
+      image: cimg/docker:stable 
 
     environment:
       # You can define your environment variables here or in the project settings:
