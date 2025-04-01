@@ -16,7 +16,7 @@ jobs:
     # If you use cimg/base, you’d have to install Docker. 
     # Alternatively, choose a Docker-enabled image or a machine executor.
     docker:
-      - image: cimg/base:stable
+      - image: ubuntu-2004:202201-02
 
     environment:
       # You can define your environment variables here or in the project settings:
@@ -58,15 +58,6 @@ jobs:
 
     steps:
       - checkout
-
-      # -----------------------------------------------------------------------
-      # (Optional) Install Docker if your CircleCI image doesn’t come with it:
-      - run:
-          name: "Install Docker (if needed)"
-          command: |
-            sudo apt-get update
-            sudo apt-get install -y docker.io
-            docker version
 
       # -----------------------------------------------------------------------
       # Restore or initialize the cache directories used by ORT
