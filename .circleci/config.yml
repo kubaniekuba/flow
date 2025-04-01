@@ -70,7 +70,7 @@ jobs:
       - run:
           name: Check for Restricted Licenses
           command: |
-            python - <<'EOF'
+            python - \<<'EOF'
             import json, sys
             # Define the set of restricted licenses (customize as needed)
             restricted_licenses = {"GPL-2.0", "GPL-3.0", "AGPL-3.0"}
