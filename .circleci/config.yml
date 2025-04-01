@@ -16,7 +16,7 @@ jobs:
     # If you use cimg/base, you’d have to install Docker. 
     # Alternatively, choose a Docker-enabled image or a machine executor.
     docker:
-      - image: ubuntu-2004:202201-02
+      - image: cimg/ubuntu:20.04
 
     environment:
       # You can define your environment variables here or in the project settings:
