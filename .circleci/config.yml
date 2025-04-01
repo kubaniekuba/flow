@@ -1,23 +1,27 @@
 version: 2.1
 
+jobs:
+  ort-run:
+    machine:
+      # Make sure this is a valid CircleCI machine image
+      image: ubuntu-2004:current
+
+    environment:
+      # Any environment variables here
+      SW_NAME: "myProject"
+      ORT_HOME_PATH: ".ort"
+
+    steps:
+      - checkout
+      - run:
+          name: "Say Hello"
+          command: echo "Hello from the machine executor!"
+
 workflows:
   version: 2
   ort_pipeline:
     jobs:
       - ort-run
-
-jobs:
-  ort-run:
-    # Machine executor, using a valid image name:
-    machine:
-      # "ubuntu-2004:current" is typically available.
-      # (Exact versions like "ubuntu-2004:2022.10" etc. can also be used if documented.)
-      image: ubuntu-2004:current
-
-    steps:
-      - checkout
-      - run: echo "Running on the machine executor with Ubuntu 20.04"
-      # ... your other steps ...
 
     environment:
       # "Inputs" or environment variables that replicate your GitHub Actions workflow
