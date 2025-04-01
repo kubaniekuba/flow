@@ -8,8 +8,16 @@ workflows:
 
 jobs:
   ort-run:
+    # Machine executor, using a valid image name:
     machine:
-      image: ubuntu-2004:202201-02
+      # "ubuntu-2004:current" is typically available.
+      # (Exact versions like "ubuntu-2004:2022.10" etc. can also be used if documented.)
+      image: ubuntu-2004:current
+
+    steps:
+      - checkout
+      - run: echo "Running on the machine executor with Ubuntu 20.04"
+      # ... your other steps ...
 
     environment:
       # "Inputs" or environment variables that replicate your GitHub Actions workflow
