@@ -1,8 +1,5 @@
 version: 2.1
 
-# In CircleCI config version 2.1, you can define pipelines, orbs, and so on.
-# Below is a single pipeline with one job that roughly mimics the GitHub Actions steps.
-
 workflows:
   version: 2
   ort_pipeline:
@@ -10,12 +7,9 @@ workflows:
       - ort-run
 
 jobs:
-  build:
+  ort-run:
     machine:
       image: ubuntu-2004:202201-02
-    steps:
-      - checkout
-      - run: echo "Running on a machine executor with Ubuntu 20.04"
 
     environment:
       # You can define your environment variables here or in the project settings:
