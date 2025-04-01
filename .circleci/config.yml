@@ -1,154 +1,40 @@
 version: 2.1
-
-executors:
-  docker-executor:
-    docker:
-      - image: cimg/docker:stable
-    resource_class: medium
-
 jobs:
-  ort-run:
-    executor: docker-executor
-    setup_remote_docker:
-      version: 20.10.7
-    environment:
-      ORT_HOME_PATH: ".ort"
-      PROJECT_PATH: "./"
-      IMAGE: "ghcr.io/oss-review-toolkit/ort:latest"
-      LOG_LEVEL: "warn"
-      ORT_CLI_ARGS: "-P ort.forceOverwrite=true --stacktrace"
-      ORT_CLI_ANALYZE_ARGS: ""
-      ORT_CLI_SCAN_ARGS: ""
-      ORT_CLI_EVALUATE_ARGS: ""
-      ORT_CLI_ADVISE_ARGS: ""
-      ORT_CLI_REPORT_ARGS: "-O CycloneDX=output.file.formats=json,xml -O SpdxDocument=output.file.formats=json,yaml -O WebApp=output.file.formats=html"
+  build_and_scan:
+    docker:
+      - image: circleci/python:3.8  # Use an image that fits your project's requirements
     steps:
       - checkout
 
+      # Install Syft and Grype
       - run:
-          name: "Initialize ORT Environment"
+          name: Install Syft and Grype
           command: |
-            echo "Initializing environment for ORT..."
-            mkdir -p $HOME/.cache/scancode-tk/
-            mkdir -p $HOME/.config/jgit/
-            mkdir -p $HOME/$ORT_HOME_PATH/{cache,config,ort-results,scanner/archive,scanner/provenance}
-            mkdir -p $HOME/.gradle/
-            mkdir -p $HOME/.rustup/{cache,download,tmp}
-            mkdir -p $HOME/go/
-            if [ -z "$ORT_CONFIG_PATH" ]; then
-              export ORT_CONFIG_PATH="$HOME/$ORT_HOME_PATH/config"
-            fi
-            export ORT_RESULTS_PATH="$HOME/$ORT_HOME_PATH/ort-results"
-            if [ -z "$SW_NAME" ] && [ -d "$PROJECT_PATH/.git" ]; then
-              export SW_NAME=$(basename -s .git $(cd "$PROJECT_PATH" && git config --get remote.origin.url || echo "unknown"))
-            fi
-            if [ -z "$SW_VERSION" ] && [ -d "$PROJECT_PATH/.git" ]; then
-              export SW_VERSION=$(cd "$PROJECT_PATH" && git rev-parse --short HEAD)
-            fi
-            export SW_NAME_SAFE=$(echo "$SW_NAME" | sed -e 's/[^A-Za-z0-9-_]//g' -e 's/ /-/g' | tr '[:upper:]' '[:lower:]')
-            export ORT_RESULTS_ARTIFACT_NAME="ort-results-${SW_NAME_SAFE}-${SW_VERSION}"
-            echo "ORT_CONFIG_PATH=$ORT_CONFIG_PATH"
-            echo "ORT_RESULTS_PATH=$ORT_RESULTS_PATH"
-            echo "SW_NAME_SAFE=$SW_NAME_SAFE"
-            echo "ORT_RESULTS_ARTIFACT_NAME=$ORT_RESULTS_ARTIFACT_NAME"
+            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
 
+      # Generate SBOM
       - run:
-          name: "Run ORT Analyzer"
+          name: Generate SBOM with Syft
           command: |
-            echo "Running ORT Analyzer..."
-            docker run \
-              --mount type=bind,source=$HOME,target=/home/ort \
-              -u $(id -u):$(id -g) \
-              -e JDK_JAVA_OPTIONS="-Xmx5120m" \
-              -e ORT_DATA_DIR="/home/ort/$ORT_HOME_PATH" \
-              $IMAGE \
-              --$LOG_LEVEL \
-              $ORT_CLI_ARGS \
-              analyze \
-              -i "$PROJECT_PATH" \
-              -o "/home/ort/$ORT_HOME_PATH/ort-results" \
-              -f JSON \
-              $ORT_CLI_ANALYZE_ARGS
+            syft . -o cyclonedx > sbom.json
 
+      # Scan for vulnerabilities using the SBOM
       - run:
-          name: "Run ORT Scanner"
+          name: Vulnerability Scan with Grype
           command: |
-            echo "Running ORT Scanner..."
-            docker run \
-              --mount type=bind,source=$HOME,target=/home/ort \
-              --mount type=tmpfs,target=/tmp \
-              -u $(id -u):$(id -g) \
-              -e JDK_JAVA_OPTIONS="-Xmx5120m" \
-              -e ORT_DATA_DIR="/home/ort/$ORT_HOME_PATH" \
-              $IMAGE \
-              --$LOG_LEVEL \
-              $ORT_CLI_ARGS \
-              scan \
-              -i "/home/ort/$ORT_HOME_PATH/ort-results/analyzer-result.json" \
-              -o "/home/ort/$ORT_HOME_PATH/ort-results" \
-              -f JSON \
-              $ORT_CLI_SCAN_ARGS
+            grype sbom:sbom.json
 
+      # License scanning using ScanCode Toolkit (using a Docker image)
       - run:
-          name: "Run ORT Advisor"
+          name: Scan for Restricted Licenses
           command: |
-            echo "Running ORT Advisor..."
-            docker run \
-              --mount type=bind,source=$HOME,target=/home/ort \
-              -u $(id -u):$(id -g) \
-              -e JDK_JAVA_OPTIONS="-Xmx5120m" \
-              -e ORT_DATA_DIR="/home/ort/$ORT_HOME_PATH" \
-              $IMAGE \
-              --$LOG_LEVEL \
-              $ORT_CLI_ARGS \
-              advise \
-              -i "/home/ort/$ORT_HOME_PATH/ort-results/scan-result.json" \
-              -o "/home/ort/$ORT_HOME_PATH/ort-results" \
-              -f JSON \
-              $ORT_CLI_ADVISE_ARGS
-
-      - run:
-          name: "Run ORT Evaluator"
-          command: |
-            echo "Running ORT Evaluator..."
-            docker run \
-              --mount type=bind,source=$HOME,target=/home/ort \
-              -u $(id -u):$(id -g) \
-              -e JDK_JAVA_OPTIONS="-Xmx5120m" \
-              -e ORT_DATA_DIR="/home/ort/$ORT_HOME_PATH" \
-              $IMAGE \
-              --$LOG_LEVEL \
-              $ORT_CLI_ARGS \
-              evaluate \
-              -i "/home/ort/$ORT_HOME_PATH/ort-results/scan-result.json" \
-              -o "/home/ort/$ORT_HOME_PATH/ort-results" \
-              -f JSON \
-              $ORT_CLI_EVALUATE_ARGS
-
-      - run:
-          name: "Run ORT Reporter"
-          command: |
-            echo "Running ORT Reporter..."
-            docker run \
-              --mount type=bind,source=$HOME,target=/home/ort \
-              -u $(id -u):$(id -g) \
-              -e JDK_JAVA_OPTIONS="-Xmx5120m" \
-              -e ORT_DATA_DIR="/home/ort/$ORT_HOME_PATH" \
-              $IMAGE \
-              --$LOG_LEVEL \
-              $ORT_CLI_ARGS \
-              report \
-              -i "/home/ort/$ORT_HOME_PATH/ort-results/evaluation-result.json" \
-              -o "/home/ort/$ORT_HOME_PATH/ort-results" \
-              -f "$ORT_CLI_REPORT_ARGS"
-
-      - store_artifacts:
-          name: "Store ORT Artifacts"
-          path: ~/$(echo $ORT_HOME_PATH)/ort-results
-          destination: "ort-results"
+            # Adjust the docker image and command as needed. Here we use a hypothetical ScanCode Docker image.
+            docker run --rm -v "$(pwd):/src" nfnty/scancode-toolkit scancode -l -c --json-pp scan-results.json /src
+            # Optionally, add a script to parse scan-results.json and exit with a non-zero status if restricted licenses are found.
 
 workflows:
   version: 2
-  ort_pipeline:
+  build_and_scan_workflow:
     jobs:
-      - ort-run
+      - build_and_scan
