@@ -1,71 +1,280 @@
 version: 2.1
 
-executors:
-  ort-executor:
-    docker:
-      - image: ghcr.io/oss-review-toolkit/ort:latest
-    environment:
-      ORT_RESULTS_PATH: /project/ort-results
-      MAVEN_REPO_LOCAL: /project/cache/.m2/repository
-      GO_CACHE_LOCAL: /project/cache/.go/pkg/mod
-      PIP_CACHE_DIR: /project/cache/pip
-      GRADLE_USER_HOME: /project/cache/.gradle
-      YARN_CACHE_FOLDER: /project/cache/yarn
-      NODE_PATH: /project/cache/node_modules
-      SBT_OPTS: "-Dsbt.global.base=/project/cache/sbt -Dsbt.ivy.home=/project/cache/ivy2 -Divy.home=/project/cache/ivy2"
-
-jobs:
-  run-ort:
-    executor: ort-executor
-    steps:
-      # Step 1: Checkout code
-      - checkout
-
-      # Step 2: Set up environment variables and directories
-      - run:
-          name: Initialize Environment Variables and Directories
-          command: |
-            export ORT_SCAN_STARTED_AT=$(date +"%Y-%m-%dT%H:%M:%S%z")
-            mkdir -p /project/{cache,ort-results,scanner/archive/,scanner/provenance/}
-            mkdir -p ${MAVEN_REPO_LOCAL} ${GO_CACHE_LOCAL} ${PIP_CACHE_DIR} ${GRADLE_USER_HOME} ${YARN_CACHE_FOLDER} ${NODE_PATH}
-            echo "Environment initialized."
-
-      # Step 3: Run ORT Analyzer
-      - run:
-          name: Run ORT Analyzer
-          command: |
-            ort analyze \
-              -i /project \
-              -o ${ORT_RESULTS_PATH} \
-              -f JSON \
-              --stacktrace
-
-      # Step 4: Run ORT Evaluator (Policy Checks)
-      - run:
-          name: Run ORT Evaluator
-          command: |
-            ort evaluate \
-              -i ${ORT_RESULTS_PATH}/analyzer-result.json \
-              -o ${ORT_RESULTS_PATH} \
-              --stacktrace
-
-      # Step 5: Run ORT Reporter (Generate SBOMs and Reports)
-      - run:
-          name: Generate Reports with ORT Reporter
-          command: |
-            ort report \
-              -i ${ORT_RESULTS_PATH}/evaluation-result.json \
-              -o ${ORT_RESULTS_PATH} \
-              -f CycloneDx,SpdxDocument,WebApp \
-              --stacktrace
-
-      # Step 6: Save Artifacts (Reports)
-      - store_artifacts:
-          path: /project/ort-results
-          destination: ort-reports
+# In CircleCI config version 2.1, you can define pipelines, orbs, and so on.
+# Below is a single pipeline with one job that roughly mimics the GitHub Actions steps.
 
 workflows:
   version: 2
-  ort-workflow:
+  ort_pipeline:
     jobs:
-      - run-ort
+      - ort-run
+
+jobs:
+  ort-run:
+    # You can use a CircleCI convenience image that has Docker in it.
+    # cimg/base:stable does NOT come with Docker by default. 
+    # If you use cimg/base, you’d have to install Docker. 
+    # Alternatively, choose a Docker-enabled image or a machine executor.
+    docker:
+      - image: cimg/base:stable
+
+    environment:
+      # You can define your environment variables here or in the project settings:
+      # e.g. CircleCI > Project Settings > Environment Variables.
+      # They correspond to the GitHub Actions "inputs" or "env" in your snippet.
+      VCS_TYPE: "git"
+      VCS_URL: ""
+      VCS_REVISION: ""
+      VCS_PATH: ""
+      ADVISORS: "OSV"
+      ALLOW_DYNAMIC_VERSIONS: "false"
+      DB_URL: ""
+      DB_USERNAME: ""
+      DB_PASSWORD: ""
+      DOCKER_CLI_ARGS: ""
+      FAIL_ON: ""
+      HTTP_FILE_SERVER_URL: ""
+      HTTP_FILE_SERVER_USERNAME: ""
+      HTTP_FILE_SERVER_PASSWORD: ""
+      HTTP_FILE_SERVER_TOKEN: ""
+      IMAGE: "ghcr.io/oss-review-toolkit/ort:latest"
+      LOG_LEVEL: "warn"
+      ORT_CLI_ARGS: "-P ort.forceOverwrite=true --stacktrace"
+      ORT_CLI_ANALYZE_ARGS: ""
+      ORT_CLI_SCAN_ARGS: ""
+      ORT_CLI_EVALUATE_ARGS: ""
+      ORT_CLI_ADVISE_ARGS: ""
+      ORT_CLI_REPORT_ARGS: "-O CycloneDX=output.file.formats=json,xml -O SpdxDocument=output.file.formats=json,yaml"
+      ORT_CONFIG_PATH: ""
+      ORT_HOME_PATH: ".ort"
+      ORT_CONFIG_REPOSITORY: "https://github.com/oss-review-toolkit/ort-config.git"
+      ORT_CONFIG_REVISION: "main"
+      ORT_YML_PATH: ""
+      PROJECT_PATH: "./"        # Where your code is checked out
+      REPORT_FORMATS: "CycloneDx,SpdxDocument,WebApp"
+      RUN_STEPS: "cache-dependencies,labels,analyzer,evaluator,advisor,reporter,upload-results"
+      SW_NAME: ""
+      SW_VERSION: ""
+
+    steps:
+      - checkout
+
+      # -----------------------------------------------------------------------
+      # (Optional) Install Docker if your CircleCI image doesn’t come with it:
+      - run:
+          name: "Install Docker (if needed)"
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y docker.io
+            docker version
+
+      # -----------------------------------------------------------------------
+      # Restore or initialize the cache directories used by ORT
+      # (similar to actions/cache@v4 in GitHub)
+      - restore_cache:
+          name: Restore Dependencies Cache
+          keys:
+            - v1-ort-deps-{{ .Branch }}-{{ .Revision }}
+
+      # -----------------------------------------------------------------------
+      # Example: Prepare environment for ORT
+      - run:
+          name: "Init ORT environment"
+          command: |
+            echo "Initializing environment for ORT..."
+            mkdir -p $HOME/.cache/scancode-tk/
+            mkdir -p $HOME/.config/jgit/
+            mkdir -p $HOME/$ORT_HOME_PATH/{cache,config,ort-results,scanner/archive,scanner/provenance}
+            mkdir -p $HOME/.gradle/
+            mkdir -p $HOME/.rustup/{cache,download,tmp}
+            mkdir -p $HOME/go/
+
+            # Set up default config path if not provided:
+            if [ -z "$ORT_CONFIG_PATH" ]; then
+              export ORT_CONFIG_PATH="$HOME/$ORT_HOME_PATH/config"
+            fi
+            export ORT_RESULTS_PATH="$HOME/$ORT_HOME_PATH/ort-results"
+
+            # Determine a software name and version if none given
+            # (Only works if your code is a Git repo in $PROJECT_PATH)
+            if [ -z "$SW_NAME" ] && [ -d "$PROJECT_PATH/.git" ]; then
+              export SW_NAME=$(basename -s .git $(cd "$PROJECT_PATH" && git config --get remote.origin.url || echo "unknown"))
+            fi
+            if [ -z "$SW_VERSION" ] && [ -d "$PROJECT_PATH/.git" ]; then
+              export SW_VERSION=$(cd "$PROJECT_PATH" && git rev-parse --short HEAD)
+            fi
+
+            # Clean up name for certain tools:
+            export SW_NAME_SAFE="$(echo "$SW_NAME" | sed -e 's/[^A-Za-z0-9-_]//g' -e 's/ /-/g' | tr '[:upper:]' '[:lower:]')"
+            export ORT_RESULTS_ARTIFACT_NAME="ort-results-${SW_NAME_SAFE}-${SW_VERSION}"
+
+            # Write env variables for subsequent steps
+            echo "export ORT_CONFIG_PATH=$ORT_CONFIG_PATH" >> $BASH_ENV
+            echo "export ORT_RESULTS_PATH=$ORT_RESULTS_PATH" >> $BASH_ENV
+            echo "export SW_NAME_SAFE=$SW_NAME_SAFE" >> $BASH_ENV
+            echo "export ORT_RESULTS_ARTIFACT_NAME=$ORT_RESULTS_ARTIFACT_NAME" >> $BASH_ENV
+            source $BASH_ENV
+
+      # -----------------------------------------------------------------------
+      # Example: Shallow clone ort-config repository if local ORT_CONFIG_PATH is empty
+      - run:
+          name: "Clone ORT config repository"
+          when: on_success
+          command: |
+            source $BASH_ENV
+            if [ ! "$(ls -A "$ORT_CONFIG_PATH")" ]; then
+              echo "Cloning ORT config from $ORT_CONFIG_REPOSITORY..."
+              mkdir -p "$ORT_CONFIG_PATH"
+              cd "$ORT_CONFIG_PATH"
+              git init -q
+              git remote add origin "$ORT_CONFIG_REPOSITORY"
+              git fetch -q --depth=1 origin "$ORT_CONFIG_REVISION"
+              git checkout -q FETCH_HEAD
+            fi
+
+      # -----------------------------------------------------------------------
+      # Example: Run ORT Analyzer
+      # (You could conditionally skip if it's not in RUN_STEPS, for brevity we run it unconditionally)
+      - run:
+          name: "Run ORT Analyzer"
+          command: |
+            source $BASH_ENV
+            echo "Running ORT Analyzer..."
+            docker run \
+              --mount type=bind,source=$HOME,target=/home/ort \
+              -u $(id -u):$(id -g) \
+              -e JDK_JAVA_OPTIONS="-Xmx5120m" \
+              -e ORT_DATA_DIR="/home/ort/$ORT_HOME_PATH" \
+              $DOCKER_CLI_ARGS \
+              $IMAGE \
+              --$LOG_LEVEL \
+              -P ort.analyzer.allowDynamicVersions=$ALLOW_DYNAMIC_VERSIONS \
+              $ORT_CLI_ARGS \
+              analyze \
+              -i "$PROJECT_PATH" \
+              -o "/home/ort/$ORT_HOME_PATH/ort-results" \
+              -f JSON \
+              $ORT_CLI_ANALYZE_ARGS
+
+      # -----------------------------------------------------------------------
+      # Example: Run ORT Scanner
+      - run:
+          name: "Run ORT Scanner"
+          command: |
+            source $BASH_ENV
+            echo "Running ORT Scanner..."
+            docker run \
+              --mount type=bind,source=$HOME,target=/home/ort \
+              --mount type=tmpfs,target=/tmp \
+              -u $(id -u):$(id -g) \
+              -e JDK_JAVA_OPTIONS="-Xmx5120m" \
+              -e ORT_DATA_DIR="/home/ort/$ORT_HOME_PATH" \
+              -e HTTP_FILE_SERVER_URL="$HTTP_FILE_SERVER_URL" \
+              -e HTTP_FILE_SERVER_USERNAME="$HTTP_FILE_SERVER_USERNAME" \
+              -e HTTP_FILE_SERVER_PASSWORD="$HTTP_FILE_SERVER_PASSWORD" \
+              -e HTTP_FILE_SERVER_TOKEN="$HTTP_FILE_SERVER_TOKEN" \
+              -e POSTGRES_URL="$DB_URL" \
+              -e POSTGRES_USERNAME="$DB_USERNAME" \
+              -e POSTGRES_PASSWORD="$DB_PASSWORD" \
+              $DOCKER_CLI_ARGS \
+              $IMAGE \
+              --$LOG_LEVEL \
+              $ORT_CLI_ARGS \
+              scan \
+              -i "/home/ort/$ORT_HOME_PATH/ort-results/analyzer-result.json" \
+              -o "/home/ort/$ORT_HOME_PATH/ort-results" \
+              -f JSON \
+              $ORT_CLI_SCAN_ARGS
+
+      # -----------------------------------------------------------------------
+      # Example: Run ORT Advisor
+      - run:
+          name: "Run ORT Advisor"
+          command: |
+            source $BASH_ENV
+            echo "Running ORT Advisor..."
+            docker run \
+              --mount type=bind,source=$HOME,target=/home/ort \
+              -u $(id -u):$(id -g) \
+              -e JDK_JAVA_OPTIONS="-Xmx5120m" \
+              -e ORT_DATA_DIR="/home/ort/$ORT_HOME_PATH" \
+              $DOCKER_CLI_ARGS \
+              $IMAGE \
+              --$LOG_LEVEL \
+              $ORT_CLI_ARGS \
+              advise \
+              -i "/home/ort/$ORT_HOME_PATH/ort-results/scan-result.json" \
+              -o "/home/ort/$ORT_HOME_PATH/ort-results" \
+              -a "$ADVISORS" \
+              -f JSON \
+              $ORT_CLI_ADVISE_ARGS
+
+      # -----------------------------------------------------------------------
+      # Example: Run ORT Evaluator
+      - run:
+          name: "Run ORT Evaluator"
+          command: |
+            source $BASH_ENV
+            echo "Running ORT Evaluator..."
+            docker run \
+              --mount type=bind,source=$HOME,target=/home/ort \
+              -u $(id -u):$(id -g) \
+              -e JDK_JAVA_OPTIONS="-Xmx5120m" \
+              -e ORT_DATA_DIR="/home/ort/$ORT_HOME_PATH" \
+              $DOCKER_CLI_ARGS \
+              $IMAGE \
+              --$LOG_LEVEL \
+              $ORT_CLI_ARGS \
+              evaluate \
+              -i "/home/ort/$ORT_HOME_PATH/ort-results/scan-result.json" \
+              -o "/home/ort/$ORT_HOME_PATH/ort-results" \
+              -f JSON \
+              $ORT_CLI_EVALUATE_ARGS
+
+      # -----------------------------------------------------------------------
+      # Example: Run ORT Reporter
+      - run:
+          name: "Run ORT Reporter"
+          command: |
+            source $BASH_ENV
+            echo "Running ORT Reporter..."
+            docker run \
+              --mount type=bind,source=$HOME,target=/home/ort \
+              -u $(id -u):$(id -g) \
+              -e JDK_JAVA_OPTIONS="-Xmx5120m" \
+              -e ORT_DATA_DIR="/home/ort/$ORT_HOME_PATH" \
+              -e POSTGRES_URL="$DB_URL" \
+              -e POSTGRES_USERNAME="$DB_USERNAME" \
+              -e POSTGRES_PASSWORD="$DB_PASSWORD" \
+              $DOCKER_CLI_ARGS \
+              $IMAGE \
+              --$LOG_LEVEL \
+              $ORT_CLI_ARGS \
+              report \
+              -i "/home/ort/$ORT_HOME_PATH/ort-results/evaluation-result.json" \
+              -o "/home/ort/$ORT_HOME_PATH/ort-results" \
+              -f "$REPORT_FORMATS" \
+              -O SpdxDocument=document.name="$SW_NAME_SAFE" \
+              $ORT_CLI_REPORT_ARGS
+
+      # -----------------------------------------------------------------------
+      # Save any updates to your ORT caches
+      - save_cache:
+          name: Save Dependencies Cache
+          paths:
+            - ~/.gradle/caches
+            - ~/.cargo
+            - ~/.rustup
+            - ~/.cache/go-build
+            - ~/.cache/pip
+            - ~/.npm
+            - ~/.m2/repository
+            - ~/go/pkg/mod
+            # etc. (Adjust to your actual usage and/or remove if not needed)
+          key: v1-ort-deps-{{ .Branch }}-{{ .Revision }}
+
+      # -----------------------------------------------------------------------
+      # Store the ORT results as CircleCI artifacts
+      - store_artifacts:
+          path: ~/{{ .Environment.ORT_HOME_PATH }}/ort-results
+          destination: "ort-results"
