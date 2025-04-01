@@ -7,10 +7,10 @@ jobs:
     steps:
       - checkout
       
-      # Enable remote Docker to run Docker commands
+      # Enable remote Docker to run Docker commands.
       - setup_remote_docker
       
-      # Install Syft and Grype in a user-writable directory
+      # Install Syft and Grype in a user-writable directory.
       - run:
           name: Setup local bin and install Syft and Grype
           command: |
@@ -21,31 +21,31 @@ jobs:
             echo "Installing Grype..."
             curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b $HOME/.local/bin
 
-      # Generate an SBOM using Syft
+      # Generate an SBOM using Syft and save as JSON artifact.
       - run:
           name: Generate SBOM with Syft
           command: |
             export PATH=$HOME/.local/bin:$PATH
             syft . -o cyclonedx > sbom.json
 
-      # Scan the SBOM for vulnerabilities using Grype
+      # Scan the SBOM for vulnerabilities using Grype and save as JSON artifact.
       - run:
           name: Vulnerability Scan with Grype
           command: |
             export PATH=$HOME/.local/bin:$PATH
-            grype sbom:sbom.json
+            grype sbom:sbom.json -o json > grype.json
 
-      # Run ScanCode Toolkit for license scanning via Docker
+      # Run ScanCode Toolkit for license scanning via Docker.
       - run:
           name: License Scan with ScanCode Toolkit
           command: |
             docker run --rm -v "$(pwd):/src" nfnty/scancode-toolkit scancode -l -c --json-pp scan-results.json /src
 
-      # Parse the license scan results and fail if restricted licenses are detected
+      # Parse the license scan results and fail if restricted licenses are detected.
       - run:
           name: Check for Restricted Licenses
           command: |
-            python - <<'EOF'
+            python - \<<'EOF'
             import json, sys
             # Define the set of restricted licenses. Customize this list as needed.
             restricted_licenses = {"GPL-2.0", "GPL-3.0", "AGPL-3.0"}
@@ -61,8 +61,8 @@ jobs:
             # Each file should have a "licenses" list with license details.
             violations = []
             for file in data.get("files", []):
-                for license in file.get("licenses", []):
-                    license_key = license.get("spdx_license_key", "")
+                for lic in file.get("licenses", []):
+                    license_key = lic.get("spdx_license_key", "")
                     if license_key in restricted_licenses:
                         violations.append((file.get("path", "unknown"), license_key))
             
@@ -74,6 +74,17 @@ jobs:
             else:
                 print("No restricted licenses found.")
             EOF
+
+      # Save SBOM, Grype, and ScanCode outputs as artifacts.
+      - store_artifacts:
+          path: sbom.json
+          destination: sbom.json
+      - store_artifacts:
+          path: grype.json
+          destination: grype.json
+      - store_artifacts:
+          path: scan-results.json
+          destination: scan-results.json
 
 workflows:
   build_and_scan_workflow:
