@@ -10,8 +10,11 @@ jobs:
       - run:
           name: Install Syft and Grype
           command: |
-            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
-            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+            mkdir -p $HOME/.local/bin
+            export PATH=$HOME/.local/bin:$PATH
+            
+            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b $HOME/.local/bin
+            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b $HOME/.local/bin
 
       # Generate SBOM
       - run:
