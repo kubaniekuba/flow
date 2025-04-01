@@ -6,13 +6,13 @@ jobs:
       - image: circleci/python:3.8
     steps:
       - checkout
-      
-      # Enable remote Docker to run Docker commands.
+
+      # Enable remote Docker to build and run Docker images.
       - setup_remote_docker
-      
-      # Install Syft and Grype in a user-writable directory.
+
+      # Install Syft and Grype into a user-writable directory.
       - run:
-          name: Setup local bin and install Syft and Grype
+          name: Install Syft and Grype
           command: |
             mkdir -p $HOME/.local/bin
             export PATH=$HOME/.local/bin:$PATH
@@ -21,35 +21,43 @@ jobs:
             echo "Installing Grype..."
             curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b $HOME/.local/bin
 
-      # Generate an SBOM using Syft and save as JSON artifact.
+      # Generate an SBOM using Syft and save it as sbom.json.
       - run:
-          name: Generate SBOM with Syft
+          name: Generate SBOM
           command: |
             export PATH=$HOME/.local/bin:$PATH
             syft . -o cyclonedx > sbom.json
 
-      # Scan the SBOM for vulnerabilities using Grype and save as JSON artifact.
+      # Scan the SBOM for vulnerabilities using Grype and save the output as grype.json.
       - run:
-          name: Vulnerability Scan with Grype
+          name: Vulnerability Scan
           command: |
             export PATH=$HOME/.local/bin:$PATH
             grype sbom:sbom.json -o json > grype.json
 
-      # Run ScanCode Toolkit for license scanning via Docker.
+      # Clone the ScanCode Toolkit repository and build the Docker image.
       - run:
-          name: License Scan with ScanCode Toolkit
+          name: Build ScanCode Toolkit Docker Image
           command: |
-            docker run --rm -v "$(pwd):/src" nexb/scancode-toolkit:latest scancode -l -c --json-pp scan-results.json /src
+            git clone https://github.com/nexB/scancode-toolkit.git
+            cd scancode-toolkit
+            docker build -t scancode-toolkit .
+            cd ..
 
-      # Parse the license scan results and fail if restricted licenses are detected.
+      # Run the ScanCode Toolkit container for license scanning.
+      - run:
+          name: Run License Scan with ScanCode Toolkit
+          command: |
+            docker run --rm -v "$(pwd):/src" scancode-toolkit scancode -l -c --json-pp scan-results.json /src
+
+      # Parse the ScanCode results and fail if any restricted licenses are detected.
       - run:
           name: Check for Restricted Licenses
           command: |
             python - \<<'EOF'
             import json, sys
-            # Define the set of restricted licenses. Customize this list as needed.
+            # Define the set of restricted licenses (customize as needed)
             restricted_licenses = {"GPL-2.0", "GPL-3.0", "AGPL-3.0"}
-            
             try:
                 with open('scan-results.json') as f:
                     data = json.load(f)
@@ -73,7 +81,7 @@ jobs:
                 print("No restricted licenses found.")
             EOF
 
-      # Save SBOM, Grype, and ScanCode outputs as artifacts.
+      # Store generated JSON files as artifacts.
       - store_artifacts:
           path: sbom.json
           destination: sbom.json
