@@ -39,7 +39,7 @@ jobs:
       - run:
           name: License Scan with ScanCode Toolkit
           command: |
-            docker run --rm -v "$(pwd):/src" nfnty/scancode-toolkit scancode -l -c --json-pp scan-results.json /src
+            docker run --rm -v "$(pwd):/src" nexb/scancode-toolkit:latest scancode -l -c --json-pp scan-results.json /src
 
       # Parse the license scan results and fail if restricted licenses are detected.
       - run:
@@ -57,8 +57,6 @@ jobs:
                 print("Failed to load scan-results.json:", e)
                 sys.exit(1)
             
-            # The scan-results.json structure is assumed to include a "files" list.
-            # Each file should have a "licenses" list with license details.
             violations = []
             for file in data.get("files", []):
                 for lic in file.get("licenses", []):
