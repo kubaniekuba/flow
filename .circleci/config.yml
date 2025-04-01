@@ -8,18 +8,11 @@ workflows:
 
 jobs:
   ort-run:
-    docker:
-      # Use a valid Docker image from Docker Hub or CircleCI’s cimg images:
-      - image: cimg/docker:stable
-    steps:
-      - checkout
-      - run: docker version
-      # ... your other steps ...
+    machine:
+      image: ubuntu-2004:202201-02
 
     environment:
-      # You can define your environment variables here or in the project settings:
-      # e.g. CircleCI > Project Settings > Environment Variables.
-      # They correspond to the GitHub Actions "inputs" or "env" in your snippet.
+      # "Inputs" or environment variables that replicate your GitHub Actions workflow
       VCS_TYPE: "git"
       VCS_URL: ""
       VCS_REVISION: ""
@@ -48,7 +41,7 @@ jobs:
       ORT_CONFIG_REPOSITORY: "https://github.com/oss-review-toolkit/ort-config.git"
       ORT_CONFIG_REVISION: "main"
       ORT_YML_PATH: ""
-      PROJECT_PATH: "./"        # Where your code is checked out
+      PROJECT_PATH: "./"
       REPORT_FORMATS: "CycloneDx,SpdxDocument,WebApp"
       RUN_STEPS: "cache-dependencies,labels,analyzer,evaluator,advisor,reporter,upload-results"
       SW_NAME: ""
@@ -123,7 +116,6 @@ jobs:
 
       # -----------------------------------------------------------------------
       # Example: Run ORT Analyzer
-      # (You could conditionally skip if it's not in RUN_STEPS, for brevity we run it unconditionally)
       - run:
           name: "Run ORT Analyzer"
           command: |
@@ -259,7 +251,6 @@ jobs:
             - ~/.npm
             - ~/.m2/repository
             - ~/go/pkg/mod
-            # etc. (Adjust to your actual usage and/or remove if not needed)
           key: v1-ort-deps-{{ .Branch }}-{{ .Revision }}
 
       # -----------------------------------------------------------------------
