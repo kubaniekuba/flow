@@ -10,13 +10,12 @@ workflows:
       - ort-run
 
 jobs:
-  ort-run:
-    # You can use a CircleCI convenience image that has Docker in it.
-    # cimg/base:stable does NOT come with Docker by default. 
-    # If you use cimg/base, you’d have to install Docker. 
-    # Alternatively, choose a Docker-enabled image or a machine executor.
-    docker:
-      - image: cimg/docker:stable
+  build:
+    machine:
+      image: ubuntu-2004:202201-02
+    steps:
+      - checkout
+      - run: echo "Running on a machine executor with Ubuntu 20.04"
 
     environment:
       # You can define your environment variables here or in the project settings:
